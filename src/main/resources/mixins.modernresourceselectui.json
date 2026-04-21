@@ -1,0 +1,13 @@
+{
+  "required": true,
+  "package": "decok.dfcdvadstf.modernresourcepack.mixins",
+  "compatibilityLevel": "JAVA_8",
+  "minVersion": "0.8.1",
+  "refmap": "mixins.modernresourceselectui.refmap.json",
+  "mixins": [
+    "GuiScreenMixin",
+    "GuiScreenResourcePacksMixin"
+  ],
+  "client": [],
+  "server": []
+}

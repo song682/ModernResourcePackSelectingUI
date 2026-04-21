@@ -1,0 +1,4 @@
+mod.name=ModernResourcePackUI
+gui.resourcepacks.drag=可以将资源包拖动到此处
+resourcepack.install.confirm.title=你确定安装这些包吗？
+resourcepack.install.confirm.message=这是要安装的资源包列表：

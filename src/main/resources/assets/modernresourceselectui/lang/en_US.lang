@@ -1,0 +1,4 @@
+mod.name=ModernResourcePackUI
+gui.resourcepacks.drag=You can drag resource packs here
+resourcepack.install.confirm.title=Are you sure you want to install these packs?
+resourcepack.install.confirm.message=These are the resource packs to be installed:
