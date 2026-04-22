@@ -54,7 +54,7 @@ public class ResourcePackDragHandler {
             new decok.dfcdvadstf.modernresourcepack.gui.GuiResourcePackConfirm(
                 gui, 
                 namesArray, 
-                I18n.format("resourcepack.install.confirm.title", "你确定安装这些包吗？"), 
+                I18n.format("resourcepack.install.confirm.title"),
                 I18n.format("resourcepack.install.confirm.message", String.join("\n", namesArray))
             );
         

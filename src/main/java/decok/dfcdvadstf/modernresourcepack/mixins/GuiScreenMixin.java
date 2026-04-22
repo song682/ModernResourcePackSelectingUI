@@ -10,7 +10,6 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(GuiScreen.class)
 public class GuiScreenMixin {
-
     @Inject(method = "onGuiClosed", at = @At("RETURN"))
     private void onGuiClosed(CallbackInfo ci) {
         if ((Object) this instanceof GuiScreenResourcePacks) {

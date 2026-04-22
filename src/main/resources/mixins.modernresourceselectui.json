@@ -5,6 +5,7 @@
   "minVersion": "0.8.1",
   "refmap": "mixins.modernresourceselectui.refmap.json",
   "mixins": [
+    "GuiResourcePackListMixin",
     "GuiScreenMixin",
     "GuiScreenResourcePacksMixin"
   ],
