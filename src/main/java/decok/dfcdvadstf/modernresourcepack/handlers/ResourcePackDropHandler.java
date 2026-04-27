@@ -2,18 +2,16 @@ package decok.dfcdvadstf.modernresourcepack.handlers;
 
 import org.lwjgl.opengl.Display;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.lang.reflect.Field;
 
 public class ResourcePackDropHandler {
     private static boolean registered = false;
-
-    static {
-        try {
-            System.loadLibrary("dragdrop");
-        } catch (UnsatisfiedLinkError e) {
-            System.err.println("[ModernResourcePackUI] dragdrop.dll not found. Drag and drop will not work.");
-        }
-    }
+    private static boolean libraryLoaded = false;
+    private static File extractedLib = null;
 
     private static native void nativeRegisterDragDrop(long hwnd);
     private static native void nativeUnregisterDragDrop();
@@ -21,8 +19,70 @@ public class ResourcePackDropHandler {
     private static native String nativeGetDroppedFile(int index);
     private static native void nativeClearDroppedFiles();
 
+    private static void loadLibrary() {
+        if (libraryLoaded) return;
+
+        String os = System.getProperty("os.name").toLowerCase();
+        String libName;
+        String libResourcePath;
+        if (os.contains("win")) {
+            libName = "dragdrop.dll";
+            libResourcePath = "/natives/windows/dragdrop.dll";
+        } else if (os.contains("mac")) {
+            libName = "libdragdrop.dylib";
+            libResourcePath = "/natives/macos/libdragdrop.dylib";
+        } else {
+            libName = "libdragdrop.so";
+            libResourcePath = "/natives/linux/libdragdrop.so";
+        }
+
+        File modDir = new File(System.getProperty("user.dir"), "ModernResourcePackUI");
+        extractedLib = new File(modDir, libName);
+
+        // 如果已经存在，直接加载
+        if (extractedLib.exists()) {
+            try {
+                System.load(extractedLib.getAbsolutePath());
+                libraryLoaded = true;
+                System.out.println("[ModernResourcePackUI] Loaded existing native library: " + extractedLib.getAbsolutePath());
+                return;
+            } catch (Throwable e) {
+                System.out.println("[ModernResourcePackUI] Existing library failed to load, will re-extract.");
+            }
+        }
+
+        // 从 jar 中提取原生库到 .minecraft/ModernResourcePackUI/
+        try {
+            InputStream in = ResourcePackDropHandler.class.getResourceAsStream(libResourcePath);
+            if (in != null) {
+                if (!modDir.exists()) modDir.mkdirs();
+
+                try (OutputStream out = new FileOutputStream(extractedLib)) {
+                    byte[] buffer = new byte[4096];
+                    int bytesRead;
+                    while ((bytesRead = in.read(buffer)) != -1) {
+                        out.write(buffer, 0, bytesRead);
+                    }
+                }
+                in.close();
+
+                System.load(extractedLib.getAbsolutePath());
+                libraryLoaded = true;
+                System.out.println("[ModernResourcePackUI] Extracted and loaded native library: " + extractedLib.getAbsolutePath());
+            } else {
+                System.err.println("[ModernResourcePackUI] Native library not found in jar: " + libResourcePath);
+            }
+        } catch (Throwable e) {
+            System.err.println("[ModernResourcePackUI] Failed to load native library. Drag and drop will not work.");
+            e.printStackTrace();
+        }
+    }
+
     public static void register() {
         if (registered) return;
+
+        loadLibrary();
+        if (!libraryLoaded) return;
 
         try {
             Field implField = Display.class.getDeclaredField("display_impl");

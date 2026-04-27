@@ -1,5 +1,6 @@
 package decok.dfcdvadstf.modernresourcepack.mixins;
 
+import decok.dfcdvadstf.modernresourcepack.IncompatiblePackHelper;
 import decok.dfcdvadstf.modernresourcepack.handlers.ResourcePackDropHandler;
 import net.minecraft.client.gui.GuiResourcePackAvailable;
 import net.minecraft.client.gui.GuiResourcePackSelected;
@@ -8,6 +9,7 @@ import net.minecraft.client.gui.GuiScreenResourcePacks;
 import net.minecraft.client.gui.GuiYesNo;
 import net.minecraft.client.gui.GuiYesNoCallback;
 import net.minecraft.client.resources.I18n;
+import net.minecraft.client.resources.ResourcePackListEntry;
 import net.minecraft.client.resources.ResourcePackListEntryFound;
 import net.minecraft.client.resources.ResourcePackRepository;
 import org.spongepowered.asm.mixin.Mixin;
@@ -37,6 +39,9 @@ public abstract class GuiScreenResourcePacksMixin extends GuiScreen implements G
     @Inject(method = "initGui", at = @At("RETURN"))
     private void onInitGui(CallbackInfo ci) {
         ResourcePackDropHandler.register();
+        // Safety net: clear any stale pending entry left by Esc-cancelled GuiYesNo
+        // (GuiYesNo's default keyTyped closes without calling confirmClicked)
+        IncompatiblePackHelper.clearPendingEntry();
     }
 
     @Inject(method = "drawScreen", at = @At("TAIL"))
@@ -64,8 +69,39 @@ public abstract class GuiScreenResourcePacksMixin extends GuiScreen implements G
 
     @Override
     public void confirmClicked(boolean result, int id) {
+        // Incompatible pack confirmation (id == 1)
+        // Semantics: match vanilla ▶ button — only move entry between GUI lists,
+        // NOT modify repo. Repo only gets written when user clicks "Done".
+        // This way, if user Esc’s out of the resource pack screen without clicking Done,
+        // the pack won’t actually load and will be back in available list next time.
+        if (id == 1) {
+            ResourcePackListEntry pendingEntry = IncompatiblePackHelper.getPendingEntry();
+            IncompatiblePackHelper.clearPendingEntry();
+            this.mc.displayGuiScreen(this); // triggers initGui which rebuilds lists
+
+            if (result && pendingEntry instanceof ResourcePackListEntryFound) {
+                ResourcePackRepository.Entry targetRepoEntry =
+                        ((ResourcePackListEntryFound) pendingEntry).func_148318_i();
+                // Locate the rebuilt entry in available list by matching underlying repo entry
+                ResourcePackListEntry movedEntry = null;
+                for (Object o : this.field_146966_g) {
+                    if (o instanceof ResourcePackListEntryFound
+                            && ((ResourcePackListEntryFound) o).func_148318_i() == targetRepoEntry) {
+                        movedEntry = (ResourcePackListEntry) o;
+                        break;
+                    }
+                }
+                if (movedEntry != null) {
+                    this.field_146966_g.remove(movedEntry);
+                    this.field_146969_h.add(0, movedEntry);
+                }
+            }
+            return;
+        }
+
         this.mc.displayGuiScreen(this);
 
+        // Drag-drop install confirmation (id == 0)
         if (result && id == 0 && modernresourcepack$pendingFiles != null) {
             File targetDir = this.mc.getResourcePackRepository().getDirResourcepacks();
             List<String> copiedNames = new ArrayList<>();
