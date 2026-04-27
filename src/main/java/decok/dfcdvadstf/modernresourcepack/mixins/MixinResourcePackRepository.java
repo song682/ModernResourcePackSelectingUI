@@ -2,10 +2,11 @@ package decok.dfcdvadstf.modernresourcepack.mixins;
 
 import java.awt.image.BufferedImage;
 import java.io.File;
+import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.util.List;
 
-import decok.dfcdvadstf.modernresourcepack.resource.HighContrastResourcePack;
+import decok.dfcdvadstf.modernresourcepack.resource.HighContrastPack;
 import net.minecraft.client.resources.IResourcePack;
 import net.minecraft.client.resources.ResourcePackRepository;
 import net.minecraft.client.resources.data.IMetadataSerializer;
@@ -19,11 +20,17 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Injects the built-in High Contrast resource pack into the vanilla repository so it shows up
- * in the resource pack selection screen without the user having to drop any zip into resourcepacks/.
+ * Appends our built-in virtual pack ({@link HighContrastPack}) to the vanilla repository's
+ * "all packs" list at the end of {@code updateRepositoryEntriesAll}. The pack is fully
+ * in-memory — no files ever land in {@code resourcepacks/}, so there's nothing for users
+ * to accidentally redistribute.
+ *
+ * {@link ResourcePackRepository.Entry}'s constructor is package-private for an inner class,
+ * so we reach for it via a plain {@link Class#getDeclaredConstructor} call. That's standard
+ * Java reflection — four lines, not a 50-line constructor scanner.
  */
 @Mixin(ResourcePackRepository.class)
-public class MixinResourcePackRepository {
+public abstract class MixinResourcePackRepository {
 
     @Shadow
     private List repositoryEntriesAll;
@@ -35,89 +42,79 @@ public class MixinResourcePackRepository {
     public IResourcePack rprDefaultResourcePack;
 
     @Unique
-    private static HighContrastResourcePack modernresourcepack$highContrastPack;
+    private static HighContrastPack modernrpui$builtinPack;
 
     @Unique
-    private static ResourcePackRepository.Entry modernresourcepack$createEntry(ResourcePackRepository self, File file)
-        throws Exception {
-        // Constructor shape differs between dev/prod bytecode (synthetic bridge may be absent/present),
-        // so we reflectively pick whatever ctor accepts (repo, file, ...) and fill the rest with defaults.
-        Constructor<?>[] constructors = ResourcePackRepository.Entry.class.getDeclaredConstructors();
-        for (Constructor<?> ctor : constructors) {
-            Class<?>[] params = ctor.getParameterTypes();
-            if (params.length < 2) continue;
-            if (!ResourcePackRepository.class.isAssignableFrom(params[0])) continue;
-            if (!File.class.isAssignableFrom(params[1])) continue;
-
-            Object[] args = new Object[params.length];
-            args[0] = self;
-            args[1] = file;
-            for (int i = 2; i < params.length; i++) {
-                args[i] = modernresourcepack$defaultArg(params[i]);
-            }
-            ctor.setAccessible(true);
-            return (ResourcePackRepository.Entry) ctor.newInstance(args);
-        }
-        throw new NoSuchMethodException(
-            "No compatible ResourcePackRepository.Entry constructor found in "
-                + ResourcePackRepository.Entry.class.getName());
-    }
-
-    @Unique
-    private static Object modernresourcepack$defaultArg(Class<?> type) {
-        if (!type.isPrimitive()) return null;
-        if (type == boolean.class) return false;
-        if (type == byte.class) return (byte) 0;
-        if (type == short.class) return (short) 0;
-        if (type == int.class) return 0;
-        if (type == long.class) return 0L;
-        if (type == float.class) return 0f;
-        if (type == double.class) return 0d;
-        if (type == char.class) return '\0';
-        return null;
-    }
+    private static Constructor<ResourcePackRepository.Entry> modernrpui$entryCtor;
 
     @SuppressWarnings("unchecked")
     @Inject(method = "updateRepositoryEntriesAll", at = @At("RETURN"))
-    private void modernresourcepack$injectHighContrast(CallbackInfo ci) {
-        // Don't duplicate if already present (updateRepositoryEntriesAll can be called multiple times)
-        for (Object obj : this.repositoryEntriesAll) {
-            ResourcePackRepository.Entry entry = (ResourcePackRepository.Entry) obj;
-            IResourcePack pack = entry.getResourcePack();
-            if (pack != null && HighContrastResourcePack.PACK_NAME.equals(pack.getPackName())) {
+    private void modernrpui$appendBuiltinPacks(CallbackInfo ci) {
+        // Dedup — vanilla may call this more than once during a session
+        for (Object raw : this.repositoryEntriesAll) {
+            ResourcePackRepository.Entry existing = (ResourcePackRepository.Entry) raw;
+            IResourcePack rp = existing.getResourcePack();
+            if (rp != null && HighContrastPack.DISPLAY_NAME.equals(rp.getPackName())) {
                 return;
             }
         }
 
+        ResourcePackRepository.Entry entry = modernrpui$buildEntry();
+        if (entry != null) {
+            this.repositoryEntriesAll.add(entry);
+        }
+    }
+
+    @Unique
+    private ResourcePackRepository.Entry modernrpui$buildEntry() {
         try {
-            if (modernresourcepack$highContrastPack == null) {
-                modernresourcepack$highContrastPack = new HighContrastResourcePack();
+            if (modernrpui$builtinPack == null) {
+                modernrpui$builtinPack = new HighContrastPack();
             }
 
             ResourcePackRepository self = (ResourcePackRepository) (Object) this;
-            ResourcePackRepository.Entry entry = modernresourcepack$createEntry(
-                self,
-                new File(HighContrastResourcePack.INTERNAL_ID));
+            ResourcePackRepository.Entry entry = modernrpui$instantiateEntry(self);
+            if (entry == null) return null;
 
-            // Populate Entry fields directly — no real file on disk, so updateResourcePack() can't run.
-            ResourcePackEntryAccessor accessor = (ResourcePackEntryAccessor) entry;
-            accessor.setReResourcePack(modernresourcepack$highContrastPack);
+            ResourcePackEntryAccessor access = (ResourcePackEntryAccessor) entry;
+            access.setReResourcePack(modernrpui$builtinPack);
 
-            PackMetadataSection metadata = (PackMetadataSection) modernresourcepack$highContrastPack
+            PackMetadataSection metadata = (PackMetadataSection) modernrpui$builtinPack
                 .getPackMetadata(this.rprMetadataSerializer, "pack");
-            accessor.setRePackMetadataSection(metadata);
+            access.setRePackMetadataSection(metadata);
+            access.setTexturePackIcon(modernrpui$loadIcon());
 
-            BufferedImage icon;
-            try {
-                icon = modernresourcepack$highContrastPack.getPackImage();
-            } catch (Exception e) {
-                icon = this.rprDefaultResourcePack.getPackImage();
-            }
-            accessor.setTexturePackIcon(icon);
-
-            this.repositoryEntriesAll.add(entry);
+            return entry;
         } catch (Exception e) {
             e.printStackTrace();
+            return null;
+        }
+    }
+
+    @Unique
+    private ResourcePackRepository.Entry modernrpui$instantiateEntry(ResourcePackRepository self) throws Exception {
+        // Entry is a non-static inner class, so its JVM constructor is (Outer, File).
+        // Dummy file path — vanilla never reads it since we populate the fields directly.
+        File placeholder = new File(HighContrastPack.VIRTUAL_ID);
+        if (modernrpui$entryCtor == null) {
+            Constructor<ResourcePackRepository.Entry> ctor = ResourcePackRepository.Entry.class
+                .getDeclaredConstructor(ResourcePackRepository.class, File.class);
+            ctor.setAccessible(true);
+            modernrpui$entryCtor = ctor;
+        }
+        return modernrpui$entryCtor.newInstance(self, placeholder);
+    }
+
+    @Unique
+    private BufferedImage modernrpui$loadIcon() {
+        try {
+            return modernrpui$builtinPack.getPackImage();
+        } catch (IOException e) {
+            try {
+                return this.rprDefaultResourcePack.getPackImage();
+            } catch (IOException fallback) {
+                return null;
+            }
         }
     }
 }
