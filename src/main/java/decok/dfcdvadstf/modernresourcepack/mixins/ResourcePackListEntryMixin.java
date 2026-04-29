@@ -1,5 +1,6 @@
 package decok.dfcdvadstf.modernresourcepack.mixins;
 
+import decok.dfcdvadstf.modernresourcepack.gui.WorldResourcePackListEntry;
 import decok.dfcdvadstf.modernresourcepack.utils.IncompatiblePackHelper;
 import decok.dfcdvadstf.modernresourcepack.utils.SupportedFormatRegistry;
 import net.minecraft.client.Minecraft;
@@ -41,6 +42,11 @@ public abstract class ResourcePackListEntryMixin {
 
     @Unique
     private static boolean modernresourcepack$isIncompatible(ResourcePackListEntryFound entry) {
+        // World-scoped pack is always treated as compatible — it's a user-controlled,
+        // save-bound pack, and we don't want the red "Incompatible!" styling competing
+        // with the gold "world-specified" label.
+        if (entry instanceof WorldResourcePackListEntry) return false;
+
         ResourcePackRepository.Entry repoEntry = entry.func_148318_i();
         PackMetadataSection meta = ((ResourcePackEntryAccessor) repoEntry).getRePackMetadataSection();
         // null = no pack.mcmeta (older pack) -> always incompatible

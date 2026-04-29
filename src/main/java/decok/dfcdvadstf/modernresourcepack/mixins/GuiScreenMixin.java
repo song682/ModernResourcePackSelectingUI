@@ -1,6 +1,6 @@
 package decok.dfcdvadstf.modernresourcepack.mixins;
 
-import decok.dfcdvadstf.modernresourcepack.handlers.ResourcePackDropHandler;
+import decok.dfcdvadstf.modernresourcepack.utils.handlers.ResourcePackDropHandler;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.gui.GuiScreenResourcePacks;
 import org.spongepowered.asm.mixin.Mixin;

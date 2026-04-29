@@ -1,9 +1,13 @@
 package decok.dfcdvadstf.modernresourcepack.mixins.late.rpo;
 
 import chylex.respack.gui.GuiCustomResourcePacks;
-import decok.dfcdvadstf.modernresourcepack.handlers.ResourcePackDropHandler;
+import decok.dfcdvadstf.modernresourcepack.gui.WorldResourcePackListEntry;
+import decok.dfcdvadstf.modernresourcepack.utils.handlers.ResourcePackDropHandler;
+import decok.dfcdvadstf.modernresourcepack.api.WorldResourcePackManager;
 import decok.dfcdvadstf.modernresourcepack.utils.IncompatiblePackHelper;
 import decok.dfcdvadstf.modernresourcepack.utils.VirtualPackEntryFactory;
+import decok.dfcdvadstf.modernresourcepack.utils.WorldPackEntryFactory;
+import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiResourcePackAvailable;
 import net.minecraft.client.gui.GuiResourcePackSelected;
 import net.minecraft.client.gui.GuiScreen;
@@ -26,6 +30,7 @@ import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 
 /**
@@ -59,6 +64,44 @@ public abstract class MixinGuiCustomResourcePacks extends GuiScreen implements G
         // (RPO hardcodes top = 4 in its initGui, matching vanilla's 32 -> 45 bump)
         if (this.guiPacksAvailable != null) this.guiPacksAvailable.top = 45;
         if (this.guiPacksSelected != null) this.guiPacksSelected.top = 45;
+
+        // Pin the world-scoped pack to the top of the selected list. RPO's list is typed
+        // as List<ResourcePackListEntryFound>, so our WorldResourcePackListEntry (which
+        // extends Found) slots in cleanly.
+        modernresourcepack$injectWorldPackEntry();
+    }
+
+    @Unique
+    private void modernresourcepack$injectWorldPackEntry() {
+        if (!WorldResourcePackManager.isActive()) return;
+        if (this.listPacksSelected == null) return;
+        for (ResourcePackListEntryFound e : this.listPacksSelected) {
+            if (e instanceof WorldResourcePackListEntry) return;
+        }
+        ResourcePackRepository repo = this.mc.getResourcePackRepository();
+        ResourcePackRepository.Entry fake = WorldPackEntryFactory.createForActivePack(repo);
+        if (fake == null) return;
+
+        WorldResourcePackListEntry entry =
+                new WorldResourcePackListEntry((GuiScreenResourcePacks) (Object) this, fake);
+        this.listPacksSelected.add(0, entry);
+    }
+
+    /**
+     * Strip world-pack entries from RPO's selected list before its Done handler walks them
+     * into {@code gameSettings.resourcePacks}. Same reason as the vanilla mixin — keep the
+     * internal id out of options.txt.
+     */
+    @Inject(method = "actionPerformed", at = @At("HEAD"), remap = false)
+    private void modernresourcepack$filterWorldPackBeforeDone(GuiButton button, CallbackInfo ci) {
+        if (button == null || !button.enabled || button.id != 1) return;
+        if (this.listPacksSelected == null) return;
+        Iterator<ResourcePackListEntryFound> it = this.listPacksSelected.iterator();
+        while (it.hasNext()) {
+            if (it.next() instanceof WorldResourcePackListEntry) {
+                it.remove();
+            }
+        }
     }
 
     @Inject(method = "drawScreen", at = @At("TAIL"))
