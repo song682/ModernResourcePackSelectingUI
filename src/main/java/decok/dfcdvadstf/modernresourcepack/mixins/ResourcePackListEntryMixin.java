@@ -1,6 +1,7 @@
 package decok.dfcdvadstf.modernresourcepack.mixins;
 
-import decok.dfcdvadstf.modernresourcepack.IncompatiblePackHelper;
+import decok.dfcdvadstf.modernresourcepack.utils.IncompatiblePackHelper;
+import decok.dfcdvadstf.modernresourcepack.utils.SupportedFormatRegistry;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.GuiScreenResourcePacks;
@@ -42,8 +43,16 @@ public abstract class ResourcePackListEntryMixin {
     private static boolean modernresourcepack$isIncompatible(ResourcePackListEntryFound entry) {
         ResourcePackRepository.Entry repoEntry = entry.func_148318_i();
         PackMetadataSection meta = ((ResourcePackEntryAccessor) repoEntry).getRePackMetadataSection();
-        // null = no pack.mcmeta (older pack), pack_format != 1 = incompatible
-        return meta == null || meta.getPackFormat() != 1;
+        // null = no pack.mcmeta (older pack) -> always incompatible
+        if (meta == null) return true;
+        // supported_format override: if the pack declares min == 1, treat as compatible
+        // regardless of pack_format (1.7.10 runs pack_format 1)
+        int[] supported = SupportedFormatRegistry.get(meta);
+        if (supported != null && supported[0] == 1) {
+            return false;
+        }
+        // Fallback: only exact pack_format == 1 is compatible
+        return meta.getPackFormat() != 1;
     }
 
     @Unique

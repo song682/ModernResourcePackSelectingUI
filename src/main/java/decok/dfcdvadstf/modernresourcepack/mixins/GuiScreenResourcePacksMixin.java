@@ -1,6 +1,6 @@
 package decok.dfcdvadstf.modernresourcepack.mixins;
 
-import decok.dfcdvadstf.modernresourcepack.IncompatiblePackHelper;
+import decok.dfcdvadstf.modernresourcepack.utils.IncompatiblePackHelper;
 import decok.dfcdvadstf.modernresourcepack.handlers.ResourcePackDropHandler;
 import net.minecraft.client.gui.GuiResourcePackAvailable;
 import net.minecraft.client.gui.GuiResourcePackSelected;
