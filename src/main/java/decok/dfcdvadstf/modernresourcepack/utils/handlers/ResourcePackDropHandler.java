@@ -12,9 +12,19 @@ public class ResourcePackDropHandler {
     private static boolean registered = false;
     private static boolean libraryLoaded = false;
     private static File extractedLib = null;
+    private static Platform currentPlatform = Platform.UNKNOWN;
 
+    private enum Platform { WINDOWS, LINUX, MAC, UNKNOWN }
+
+    // Windows JNI
     private static native void nativeRegisterDragDrop(long hwnd);
     private static native void nativeUnregisterDragDrop();
+
+    // Linux JNI (X11 based) - takes Display* and Window handle
+    private static native void nativeRegisterDragDropX11(long displayPtr, long windowPtr);
+    private static native void nativeUnregisterDragDropX11(long displayPtr, long windowPtr);
+
+    // Shared across platforms - backed by per-platform native arrays
     private static native int nativeGetDroppedFileCount();
     private static native String nativeGetDroppedFile(int index);
     private static native void nativeClearDroppedFiles();
@@ -26,12 +36,15 @@ public class ResourcePackDropHandler {
         String libName;
         String libResourcePath;
         if (os.contains("win")) {
+            currentPlatform = Platform.WINDOWS;
             libName = "dragdrop.dll";
             libResourcePath = "/natives/windows/dragdrop.dll";
         } else if (os.contains("mac")) {
+            currentPlatform = Platform.MAC;
             libName = "libdragdrop.dylib";
             libResourcePath = "/natives/macos/libdragdrop.dylib";
         } else {
+            currentPlatform = Platform.LINUX;
             libName = "libdragdrop.so";
             libResourcePath = "/natives/linux/libdragdrop.so";
         }
@@ -88,17 +101,34 @@ public class ResourcePackDropHandler {
             Field implField = Display.class.getDeclaredField("display_impl");
             implField.setAccessible(true);
             Object impl = implField.get(null);
+            if (impl == null) return;
 
-            if (impl == null || !impl.getClass().getName().contains("WindowsDisplay")) {
-                return;
+            String implClassName = impl.getClass().getName();
+
+            if (currentPlatform == Platform.WINDOWS && implClassName.contains("WindowsDisplay")) {
+                Field hwndField = impl.getClass().getDeclaredField("hwnd");
+                hwndField.setAccessible(true);
+                long hwndValue = hwndField.getLong(impl);
+                nativeRegisterDragDrop(hwndValue);
+                registered = true;
+            } else if (currentPlatform == Platform.LINUX && implClassName.contains("LinuxDisplay")) {
+                // LinuxDisplay has package-private static fields: display, current_window
+                Class<?> cls = impl.getClass();
+                Field displayField = cls.getDeclaredField("display");
+                Field windowField = cls.getDeclaredField("current_window");
+                displayField.setAccessible(true);
+                windowField.setAccessible(true);
+                long displayPtr = displayField.getLong(null);
+                long windowPtr = windowField.getLong(null);
+                if (displayPtr == 0L || windowPtr == 0L) {
+                    System.err.println("[ModernResourcePackUI] LinuxDisplay handles not ready (display=" + displayPtr + ", window=" + windowPtr + ")");
+                    return;
+                }
+                nativeRegisterDragDropX11(displayPtr, windowPtr);
+                registered = true;
+                System.out.println("[ModernResourcePackUI] Registered XDnD on display=0x" + Long.toHexString(displayPtr) + " window=0x" + Long.toHexString(windowPtr));
             }
-
-            Field hwndField = impl.getClass().getDeclaredField("hwnd");
-            hwndField.setAccessible(true);
-            long hwndValue = hwndField.getLong(impl);
-
-            nativeRegisterDragDrop(hwndValue);
-            registered = true;
+            // Mac path intentionally not implemented here yet
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -107,7 +137,23 @@ public class ResourcePackDropHandler {
     public static void unregister() {
         if (!registered) return;
         try {
-            nativeUnregisterDragDrop();
+            if (currentPlatform == Platform.WINDOWS) {
+                nativeUnregisterDragDrop();
+            } else if (currentPlatform == Platform.LINUX) {
+                Field implField = Display.class.getDeclaredField("display_impl");
+                implField.setAccessible(true);
+                Object impl = implField.get(null);
+                if (impl != null) {
+                    Class<?> cls = impl.getClass();
+                    Field displayField = cls.getDeclaredField("display");
+                    Field windowField = cls.getDeclaredField("current_window");
+                    displayField.setAccessible(true);
+                    windowField.setAccessible(true);
+                    long displayPtr = displayField.getLong(null);
+                    long windowPtr = windowField.getLong(null);
+                    nativeUnregisterDragDropX11(displayPtr, windowPtr);
+                }
+            }
         } catch (Exception e) {
             e.printStackTrace();
         }
