@@ -93,3 +93,44 @@ jobs:
           src/main/resources/natives/linux/libdragdrop.so
           Linux/libdragdrop.so
         retention-days: 30
+
+  build-macos:
+    name: Build macOS dylib
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup JDK 8
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '8'
+        
+    - name: Compile macOS dylib
+      run: |
+        echo "JAVA_HOME: $JAVA_HOME"
+        
+        mkdir -p src/main/resources/natives/macos
+        
+        clang -dynamiclib -o src/main/resources/natives/macos/libdragdrop.dylib \
+            source/Mac/dragdrop.m \
+            -I"$JAVA_HOME/include" \
+            -I"$JAVA_HOME/include/darwin" \
+            -framework Cocoa -lobjc
+        
+        # Mirror to repo root
+        cp -f src/main/resources/natives/macos/libdragdrop.dylib Mac/libdragdrop.dylib
+        
+        echo "[✓] Built macOS dylib"
+        ls -la src/main/resources/natives/macos/libdragdrop.dylib
+        
+    - name: Upload macOS artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: macos-libdragdrop-dylib
+        path: |
+          src/main/resources/natives/macos/libdragdrop.dylib
+          Mac/libdragdrop.dylib
+        retention-days: 30
