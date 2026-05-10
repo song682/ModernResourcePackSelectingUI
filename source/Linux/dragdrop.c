@@ -31,7 +31,7 @@
 #define MAX_PATH_LEN 2048
 #define XDND_VERSION 5
 
-/* ---- XDnD state ---------------------------------------------------------- */
+/* ---- XDnD state ---- */
 
 static Display *g_aux_display = NULL;        /* our private connection */
 static Window   g_proxy_window = 0;          /* proxy window on g_aux_display */
@@ -66,7 +66,7 @@ static pthread_mutex_t g_files_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_t g_poll_thread;
 static int g_thread_running = 0;
 
-/* ---- Helpers ------------------------------------------------------------- */
+/* ---- Helpers ---- */
 
 static int hex_val(char c) {
     if (c >= '0' && c <= '9') return c - '0';
@@ -273,7 +273,7 @@ static void *poll_thread_main(void *unused) {
     return NULL;
 }
 
-/* ---- JNI entry points ---------------------------------------------------- */
+/* ---- JNI entry points ---- */
 
 static void intern_atoms(Display *d) {
     A_XdndAware         = XInternAtom(d, "XdndAware", False);

@@ -26,7 +26,7 @@ LRESULT CALLBACK DragDropWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
     return CallWindowProc(oldWndProc, hwnd, msg, wParam, lParam);
 }
 
-JNIEXPORT void JNICALL Java_decok_dfcdvadstf_modernresourcepack_handlers_ResourcePackDropHandler_nativeRegisterDragDrop
+JNIEXPORT void JNICALL Java_decok_dfcdvadstf_modernresourcepack_utils_handlers_ResourcePackDropHandler_nativeRegisterDragDrop
   (JNIEnv *env, jclass clazz, jlong hwnd) {
     g_hwnd = (HWND)hwnd;
     DragAcceptFiles(g_hwnd, TRUE);
@@ -34,7 +34,7 @@ JNIEXPORT void JNICALL Java_decok_dfcdvadstf_modernresourcepack_handlers_Resourc
     g_fileCount = 0;
 }
 
-JNIEXPORT void JNICALL Java_decok_dfcdvadstf_modernresourcepack_handlers_ResourcePackDropHandler_nativeUnregisterDragDrop
+JNIEXPORT void JNICALL Java_decok_dfcdvadstf_modernresourcepack_utils_handlers_ResourcePackDropHandler_nativeUnregisterDragDrop
   (JNIEnv *env, jclass clazz) {
     if (g_hwnd && oldWndProc) {
         DragAcceptFiles(g_hwnd, FALSE);
@@ -45,18 +45,18 @@ JNIEXPORT void JNICALL Java_decok_dfcdvadstf_modernresourcepack_handlers_Resourc
     g_fileCount = 0;
 }
 
-JNIEXPORT jint JNICALL Java_decok_dfcdvadstf_modernresourcepack_handlers_ResourcePackDropHandler_nativeGetDroppedFileCount
+JNIEXPORT jint JNICALL Java_decok_dfcdvadstf_modernresourcepack_utils_handlers_ResourcePackDropHandler_nativeGetDroppedFileCount
   (JNIEnv *env, jclass clazz) {
     return g_fileCount;
 }
 
-JNIEXPORT jstring JNICALL Java_decok_dfcdvadstf_modernresourcepack_handlers_ResourcePackDropHandler_nativeGetDroppedFile
+JNIEXPORT jstring JNICALL Java_decok_dfcdvadstf_modernresourcepack_utils_handlers_ResourcePackDropHandler_nativeGetDroppedFile
   (JNIEnv *env, jclass clazz, jint index) {
     if (index < 0 || index >= g_fileCount) return NULL;
     return (*env)->NewStringUTF(env, g_files[index]);
 }
 
-JNIEXPORT void JNICALL Java_decok_dfcdvadstf_modernresourcepack_handlers_ResourcePackDropHandler_nativeClearDroppedFiles
+JNIEXPORT void JNICALL Java_decok_dfcdvadstf_modernresourcepack_utils_handlers_ResourcePackDropHandler_nativeClearDroppedFiles
   (JNIEnv *env, jclass clazz) {
     g_fileCount = 0;
 }
