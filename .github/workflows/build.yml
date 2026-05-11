@@ -1,0 +1,14 @@
+name: Build mod jar
+
+on:
+  workflow_dispatch:
+  push:
+  pull_request:
+
+jobs:
+  build-jni:
+    uses: ./.github/workflows/jni-build.yml
+
+  build:
+    needs: build-jni
+    uses: song682/workflows/.github/workflows/build.yml@main
