@@ -12,3 +12,5 @@ jobs:
   build:
     needs: build-jni
     uses: song682/workflows/.github/workflows/build.yml@main
+    with:
+      native-sources: jni-natives
