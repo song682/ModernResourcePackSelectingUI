@@ -1,8 +1,9 @@
 name: Build JNI DragDrop Libraries
 
 on:
-  workflow_dispatch:  # Mannual Trigger Only
-
+  workflow_dispatch:  # Mannual Trigger
+  workflow_call:      # Reusable workflow, called by build.yml
+  
 jobs:
   build-windows:
     name: Build Windows DLL
