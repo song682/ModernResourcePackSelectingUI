@@ -1,9 +1,9 @@
 name: Build JNI DragDrop Libraries
 
 on:
-  workflow_dispatch:  # Mannual Trigger
+  workflow_dispatch:  # Manual trigger
   workflow_call:      # Reusable workflow, called by build.yml
-  
+
 jobs:
   build-windows:
     name: Build Windows DLL
@@ -136,4 +136,35 @@ jobs:
         path: |
           src/main/resources/natives/macos/libdragdrop.dylib
           Mac/libdragdrop.dylib
+        retention-days: 30
+
+  combine-natives:
+    name: Combine all platform natives
+    needs: [build-windows, build-linux, build-macos]
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Download Windows DLL
+      uses: actions/download-artifact@v4
+      with:
+        name: windows-dragdrop-dll
+        path: combined
+        
+    - name: Download Linux SO
+      uses: actions/download-artifact@v4
+      with:
+        name: linux-libdragdrop-so
+        path: combined
+        
+    - name: Download macOS dylib
+      uses: actions/download-artifact@v4
+      with:
+        name: macos-libdragdrop-dylib
+        path: combined
+        
+    - name: Upload combined natives
+      uses: actions/upload-artifact@v4
+      with:
+        name: jni-natives
+        path: combined
         retention-days: 30
