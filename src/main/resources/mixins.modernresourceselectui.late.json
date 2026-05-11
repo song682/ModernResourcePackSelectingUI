@@ -1,0 +1,11 @@
+{
+  "required": false,
+  "minVersion": "0.8.1",
+  "package": "decok.dfcdvadstf.modernresourcepack.mixins.late",
+  "refmap": "mixins.modernresourceselectui.refmap.json",
+  "compatibilityLevel": "JAVA_8",
+  "target": "@env(DEFAULT)",
+  "mixins": [],
+  "client": [],
+  "server": []
+}

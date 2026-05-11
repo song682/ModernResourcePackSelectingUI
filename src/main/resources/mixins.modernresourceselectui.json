@@ -8,7 +8,9 @@
     "GuiResourcePackListMixin",
     "GuiScreenMixin",
     "GuiScreenResourcePacksMixin",
+    "MinecraftMixin",
     "MixinResourcePackRepository",
+    "PackMetadataSectionSerializerMixin",
     "ResourcePackEntryAccessor",
     "ResourcePackListEntryMixin"
   ],

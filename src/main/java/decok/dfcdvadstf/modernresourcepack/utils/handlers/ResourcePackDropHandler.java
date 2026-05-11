@@ -24,6 +24,10 @@ public class ResourcePackDropHandler {
     private static native void nativeRegisterDragDropX11(long displayPtr, long windowPtr);
     private static native void nativeUnregisterDragDropX11(long displayPtr, long windowPtr);
 
+    // Mac JNI (Cocoa based) - no parameters, native code finds the NSView via [NSApp keyWindow]
+    private static native void nativeRegisterDragDropMac();
+    private static native void nativeUnregisterDragDropMac();
+
     // Shared across platforms - backed by per-platform native arrays
     private static native int nativeGetDroppedFileCount();
     private static native String nativeGetDroppedFile(int index);
@@ -127,8 +131,11 @@ public class ResourcePackDropHandler {
                 nativeRegisterDragDropX11(displayPtr, windowPtr);
                 registered = true;
                 System.out.println("[ModernResourcePackUI] Registered XDnD on display=0x" + Long.toHexString(displayPtr) + " window=0x" + Long.toHexString(windowPtr));
+            } else if (currentPlatform == Platform.MAC && implClassName.contains("MacOSXDisplay")) {
+                nativeRegisterDragDropMac();
+                registered = true;
+                System.out.println("[ModernResourcePackUI] Registered Cocoa drag-drop on Mac");
             }
-            // Mac path intentionally not implemented here yet
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -153,6 +160,8 @@ public class ResourcePackDropHandler {
                     long windowPtr = windowField.getLong(null);
                     nativeUnregisterDragDropX11(displayPtr, windowPtr);
                 }
+            } else if (currentPlatform == Platform.MAC) {
+                nativeUnregisterDragDropMac();
             }
         } catch (Exception e) {
             e.printStackTrace();
