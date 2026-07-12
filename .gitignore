@@ -29,4 +29,5 @@ forge*changelog.txt
 # Vs code
 .vscode
 
+/src/main/resources/natives/
 VintageResourcify
