@@ -43,15 +43,15 @@ public class ResourcePackDropHandler {
         if (os.contains("win")) {
             currentPlatform = Platform.WINDOWS;
             libName = "dragdrop.dll";
-            libResourcePath = "/natives/windows/dragdrop.dll";
+            libResourcePath = "/minecraft/natives/windows/dragdrop.dll";
         } else if (os.contains("mac")) {
             currentPlatform = Platform.MAC;
             libName = "libdragdrop.dylib";
-            libResourcePath = "/natives/macos/libdragdrop.dylib";
+            libResourcePath = "/minecraft/natives/macos/libdragdrop.dylib";
         } else {
             currentPlatform = Platform.LINUX;
             libName = "libdragdrop.so";
-            libResourcePath = "/natives/linux/libdragdrop.so";
+            libResourcePath = "/minecraft/natives/linux/libdragdrop.so";
         }
 
         File modDir = new File(System.getProperty("user.dir"), "ModernResourcePackUI");
