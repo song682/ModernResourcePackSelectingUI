@@ -1,5 +1,6 @@
 package decok.dfcdvadstf.modernresourcepack.utils.handlers;
 
+import cpw.mods.fml.common.Loader;
 import org.lwjgl.opengl.Display;
 
 import java.io.File;
@@ -98,6 +99,13 @@ public class ResourcePackDropHandler {
     public static void register() {
         if (registered) return;
 
+        // VintageResourcify (via FentLib + lwjgl3ify SDL3) already handles drag-and-drop.
+        // Skip our JNI registration to avoid conflicts.
+        if (Loader.isModLoaded("vintage-resourcify")) {
+            System.out.println("[ModernResourcePackUI] VintageResourcify detected — JNI drag-drop disabled");
+            return;
+        }
+
         loadLibrary();
         if (!libraryLoaded) return;
 
@@ -170,6 +178,7 @@ public class ResourcePackDropHandler {
     }
 
     public static String[] pollPendingFiles() {
+        if (!libraryLoaded && !registered) return null;
         try {
             int count = nativeGetDroppedFileCount();
             if (count == 0) return null;

@@ -1,10 +1,10 @@
-﻿repositories {
+repositories {
     maven {
         url 'https://jitpack.io'
     }
 }
 
-def unimixinsVersion = project.findProperty('unimixinsVersion') ?: '0.2.1'
+def unimixinsVersion = project.findProperty('unimixinsVersion')
 
 dependencies {
     implementation("com.github.LegacyModdingMC.UniMixins:unimixins-all-1.7.10:$unimixinsVersion:dev")
