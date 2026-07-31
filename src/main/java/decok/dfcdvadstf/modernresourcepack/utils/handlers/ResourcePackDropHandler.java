@@ -21,9 +21,13 @@ public class ResourcePackDropHandler {
     private static native void nativeRegisterDragDrop(long hwnd);
     private static native void nativeUnregisterDragDrop();
 
-    // Linux JNI (X11 based) - takes Display* and Window handle
+    // Linux JNI (X11 based) - takes Display* and Window handle.
+    // Same-connection design: XDnD events land in LWJGL's own queue, so
+    // nativePollDndEventsX11 must be pumped every frame from the render thread
+    // (before Display.update() drains and discards them).
     private static native void nativeRegisterDragDropX11(long displayPtr, long windowPtr);
     private static native void nativeUnregisterDragDropX11(long displayPtr, long windowPtr);
+    private static native void nativePollDndEventsX11();
 
     // Mac JNI (Cocoa based) - no parameters, native code finds the NSView via [NSApp keyWindow]
     private static native void nativeRegisterDragDropMac();
@@ -43,35 +47,27 @@ public class ResourcePackDropHandler {
         if (os.contains("win")) {
             currentPlatform = Platform.WINDOWS;
             libName = "dragdrop.dll";
-            libResourcePath = "/minecraft/natives/windows/dragdrop.dll";
+            libResourcePath = "/natives/windows/dragdrop.dll";
         } else if (os.contains("mac")) {
             currentPlatform = Platform.MAC;
             libName = "libdragdrop.dylib";
-            libResourcePath = "/minecraft/natives/macos/libdragdrop.dylib";
+            libResourcePath = "/natives/macos/libdragdrop.dylib";
         } else {
             currentPlatform = Platform.LINUX;
             libName = "libdragdrop.so";
-            libResourcePath = "/minecraft/natives/linux/libdragdrop.so";
+            libResourcePath = "/natives/linux/libdragdrop.so";
         }
 
         File modDir = new File(System.getProperty("user.dir"), "ModernResourcePackUI");
         extractedLib = new File(modDir, libName);
 
-        // 如果已经存在，直接加载
-        if (extractedLib.exists()) {
-            try {
-                System.load(extractedLib.getAbsolutePath());
-                libraryLoaded = true;
-                System.out.println("[ModernResourcePackUI] Loaded existing native library: " + extractedLib.getAbsolutePath());
-                return;
-            } catch (Throwable e) {
-                System.out.println("[ModernResourcePackUI] Existing library failed to load, will re-extract.");
-            }
-        }
-
-        // 从 jar 中提取原生库到 .minecraft/ModernResourcePackUI/
+        // 总是从 jar 重新提取覆盖，避免旧版本残留的库缺少新增的 JNI 符号（UnsatisfiedLinkError）
         try {
             InputStream in = ResourcePackDropHandler.class.getResourceAsStream(libResourcePath);
+            // 兼容旧版 jar 布局（/minecraft/natives/...）
+            if (in == null) {
+                in = ResourcePackDropHandler.class.getResourceAsStream("/minecraft" + libResourcePath);
+            }
             if (in != null) {
                 if (!modDir.exists()) modDir.mkdirs();
 
@@ -87,12 +83,24 @@ public class ResourcePackDropHandler {
                 System.load(extractedLib.getAbsolutePath());
                 libraryLoaded = true;
                 System.out.println("[ModernResourcePackUI] Extracted and loaded native library: " + extractedLib.getAbsolutePath());
-            } else {
-                System.err.println("[ModernResourcePackUI] Native library not found in jar: " + libResourcePath);
+                return;
             }
+            System.err.println("[ModernResourcePackUI] Native library not found in jar: " + libResourcePath);
         } catch (Throwable e) {
-            System.err.println("[ModernResourcePackUI] Failed to load native library. Drag and drop will not work.");
+            System.err.println("[ModernResourcePackUI] Failed to extract/load native library from jar.");
             e.printStackTrace();
+        }
+
+        // jar 里没有或提取失败，退而加载已存在的旧文件
+        if (extractedLib.exists()) {
+            try {
+                System.load(extractedLib.getAbsolutePath());
+                libraryLoaded = true;
+                System.out.println("[ModernResourcePackUI] Loaded existing native library: " + extractedLib.getAbsolutePath());
+            } catch (Throwable e) {
+                System.err.println("[ModernResourcePackUI] Failed to load native library. Drag and drop will not work.");
+                e.printStackTrace();
+            }
         }
     }
 
@@ -177,9 +185,26 @@ public class ResourcePackDropHandler {
         registered = false;
     }
 
+    /**
+     * Linux only: pump XDnD events out of LWJGL's queue. Must run on the render
+     * thread, ideally right before {@code Display.update()} drains it (see
+     * {@code MinecraftMixin}). Safe to call every frame; no-op unless registered.
+     */
+    public static void pumpNativeEvents() {
+        if (!libraryLoaded || !registered) return;
+        if (currentPlatform != Platform.LINUX) return;
+        try {
+            nativePollDndEventsX11();
+        } catch (Throwable ignored) {
+            // never let drag-drop plumbing crash the frame loop
+        }
+    }
+
     public static String[] pollPendingFiles() {
         if (!libraryLoaded && !registered) return null;
         try {
+            // Linux: also pump here so drawScreen stays responsive between frames
+            pumpNativeEvents();
             int count = nativeGetDroppedFileCount();
             if (count == 0) return null;
 

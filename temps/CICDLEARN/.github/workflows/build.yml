@@ -1,0 +1,98 @@
+name: Build mod jar
+
+on:
+  workflow_dispatch:
+    inputs:
+      native-sources:
+        description: 'Artifact name containing pre-built JNI natives'
+        required: false
+        type: string
+        default: ''
+      gradle-version:
+        description: 'Gradle version to use (e.g., 7.4, 8.0)'
+        required: false
+        type: string
+        default: '7.4'
+  workflow_call:
+    inputs:
+      native-sources:
+        description: 'Artifact name containing pre-built JNI natives'
+        required: false
+        type: string
+        default: ''
+      gradle-version:
+        description: 'Gradle version to use (e.g., 7.4, 8.0)'
+        required: false
+        type: string
+        default: '7.4'
+  push:
+    paths:
+      - '**/Tags.java'
+      - 'src/**/*.java'
+      - 'src/**/*.groovy'
+      - '*.gradle'
+      - 'gradle.properties'
+      - 'settings.gradle*'
+  pull_request:
+    paths:
+      - '**/Tags.java'
+      - 'src/**/*.java'
+      - 'src/**/*.groovy'
+      - '*.gradle'
+      - 'gradle.properties'
+      - 'settings.gradle*'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+      
+      - name: Download JNI natives (from called workflow)
+        if: inputs.native-sources != ''
+        uses: actions/download-artifact@v5
+        with:
+          name: ${{ inputs.native-sources }}
+          path: .
+      
+      # Fail fast if the natives artifact did not land where the jar expects them,
+      # otherwise Gradle would silently ship a jar without JNI libraries.
+      # 快速失败：若 natives 构件没有落到 jar 期望的目录，立即报错，
+      # 避免 Gradle 静默打出一个不含 JNI 库的 jar。
+      - name: Verify JNI natives layout
+        if: inputs.native-sources != ''
+        run: |
+          if [ -z "$(find src/main/resources/natives -type f 2>/dev/null)" ]; then
+            echo "::error::Artifact '${{ inputs.native-sources }}' did not provide any file under src/main/resources/natives"
+            exit 1
+          fi
+          echo "[✓] JNI natives found:"
+          find src/main/resources/natives -type f
+      
+      - name: Set up JDK 8
+        uses: actions/setup-java@v5
+        with:
+          java-version: '8'
+          distribution: 'temurin'
+      
+      - uses: gradle/actions/setup-gradle@v5
+        with:
+          gradle-version: ${{ inputs.gradle-version || '7.4' }}
+        name: Set up Gradle
+        
+      - name: Add permission
+        run: chmod +x ./gradlew
+      
+      - name: Execute Gradle build
+        run: ./gradlew build
+      
+      - name: Upload a Build Artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: mod-jars
+          path: build/libs
+          if-no-files-found: error

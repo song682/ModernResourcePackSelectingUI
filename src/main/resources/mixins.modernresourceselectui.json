@@ -4,10 +4,12 @@
   "compatibilityLevel": "JAVA_8",
   "minVersion": "0.8.1",
   "refmap": "mixins.modernresourceselectui.refmap.json",
+  "plugin": "decok.dfcdvadstf.modernresourcepack.mixinplugin.PackUIMixinPlugin",
   "mixins": [
     "GuiResourcePackListMixin",
     "GuiScreenMixin",
     "GuiScreenResourcePacksMixin",
+    "MinecraftDragDropMixin",
     "MinecraftMixin",
     "MixinResourcePackRepository",
     "PackMetadataSectionSerializerMixin",

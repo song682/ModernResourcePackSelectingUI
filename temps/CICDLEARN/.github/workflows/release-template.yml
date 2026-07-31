@@ -1,0 +1,321 @@
+name: Release Template
+
+on:
+  workflow_call:
+    inputs:
+      mod_archives_name:
+        description: 'Mod archives name from gradle.properties'
+        required: true
+        type: string
+      mc_version:
+        description: 'Minecraft version (e.g., 1.7.10)'
+        required: true
+        type: string
+      native-sources:
+        description: 'Artifact name containing pre-built JNI natives'
+        required: false
+        type: string
+        default: ''
+      gradle-version:
+        description: 'Gradle version to use (e.g., 7.4, 8.0)'
+        required: false
+        type: string
+        default: '7.4'
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.extract-version.outputs.version }}
+      mod-name: ${{ steps.extract-version.outputs.mod-name }}
+      release-type: ${{ steps.determine-type.outputs.release-type }}
+      should-release: ${{ steps.determine-type.outputs.should-release }}
+      is-snapshot: ${{ steps.determine-type.outputs.is-snapshot }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Locate Tags.java automatically
+        id: locate-tags
+        run: |
+          FILE=$(find . -type f -name "Tags.java" | head -n 1)
+          if [ -z "$FILE" ]; then
+            echo "Tags.java not found!"
+            exit 1
+          fi
+          echo "tags-path=$FILE" >> $GITHUB_OUTPUT
+          echo "Found Tags.java at: $FILE"
+
+      - name: Extract version and mod name
+        id: extract-version
+        run: |
+          FILE="${{ steps.locate-tags.outputs.tags-path }}"
+          MOD_NAME=$(grep -oP 'NAME = "\K[^"]+' "$FILE")
+          echo "mod-name=${MOD_NAME}" >> $GITHUB_OUTPUT
+          echo "Mod name detected: ${MOD_NAME}"
+
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            TAG="${{ github.ref_name }}"
+            VERSION="${TAG#v}"
+            echo "Version from tag: ${VERSION}"
+          else
+            VERSION=$(grep -oP 'VERSION = "\K[^"]+' "$FILE")
+            echo "Version from Tags.java: ${VERSION}"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Determine release type
+        id: determine-type
+        run: |
+          VERSION="${{ steps.extract-version.outputs.version }}"
+
+          if [[ $VERSION =~ ^([0-9]+\.[0-9]+\.[0-9]+)\.([0-9]+)$ ]]; then
+            IS_SNAPSHOT="true"
+            BASE_VERSION="${BASH_REMATCH[1]}"
+          elif [[ $VERSION =~ ^([0-9]+\.[0-9]+\.[0-9]+)-(.+)$ ]]; then
+            IS_SNAPSHOT="true"
+            BASE_VERSION="${BASH_REMATCH[1]}"
+          else
+            IS_SNAPSHOT="false"
+            BASE_VERSION="$VERSION"
+          fi
+
+          if [ "$IS_SNAPSHOT" = "true" ]; then
+            RELEASE_TYPE="snapshot"
+          else
+            MAJOR=$(echo $BASE_VERSION | cut -d. -f1)
+            MINOR=$(echo $BASE_VERSION | cut -d. -f2)
+
+            if [ "$MAJOR" -eq 0 ]; then
+              if [ "$MINOR" -lt 5 ]; then
+                RELEASE_TYPE="alpha"
+              else
+                RELEASE_TYPE="beta"
+              fi
+            else
+              RELEASE_TYPE="release"
+            fi
+          fi
+
+          if [ "$RELEASE_TYPE" = "release" ] && [ "$IS_SNAPSHOT" = "false" ]; then
+            SHOULD_RELEASE="true"
+          else
+            SHOULD_RELEASE="false"
+          fi
+
+          echo "release-type=${RELEASE_TYPE}" >> $GITHUB_OUTPUT
+          echo "should-release=${SHOULD_RELEASE}" >> $GITHUB_OUTPUT
+          echo "is-snapshot=${IS_SNAPSHOT}" >> $GITHUB_OUTPUT
+
+  build:
+    runs-on: ubuntu-latest
+    needs: check-version
+    outputs:
+      jar-files: ${{ steps.build-output.outputs.jar-files }}
+    steps:
+      - uses: actions/checkout@v6
+
+      # Same JNI injection as the reusable build.yml: pull the combined natives
+      # artifact so the released jar ships with the JNI libraries inside.
+      # 与可复用 build.yml 同款 JNI 注入：下载合并后的 natives 构件，
+      # 确保发布的 release jar 内部携带 JNI 库。
+      - name: Download JNI natives (from called workflow)
+        if: inputs.native-sources != ''
+        uses: actions/download-artifact@v5
+        with:
+          name: ${{ inputs.native-sources }}
+          path: .
+
+      # Fail fast if the natives artifact did not land where the jar expects them,
+      # otherwise Gradle would silently ship a release jar without JNI libraries.
+      # 快速失败：若 natives 构件没有落到 jar 期望的目录，立即报错，
+      # 避免 Gradle 静默发布一个不含 JNI 库的 release jar。
+      - name: Verify JNI natives layout
+        if: inputs.native-sources != ''
+        run: |
+          if [ -z "$(find src/main/resources/natives -type f 2>/dev/null)" ]; then
+            echo "::error::Artifact '${{ inputs.native-sources }}' did not provide any file under src/main/resources/natives"
+            exit 1
+          fi
+          echo "[✓] JNI natives found:"
+          find src/main/resources/natives -type f
+
+      - name: Set up JDK 8
+        uses: actions/setup-java@v5
+        with:
+          java-version: '8'
+          distribution: 'temurin'
+
+      - uses: gradle/actions/setup-gradle@v5
+        with:
+          gradle-version: ${{ inputs.gradle-version || '7.4' }}
+        name: Set up Gradle
+
+      - name: Fix line endings
+        run: sed -i 's/\r$//' gradlew
+
+      - name: Add permission
+        run: chmod +x ./gradlew
+
+      - name: Execute Gradle build
+        run: ./gradlew build
+
+      - name: Output jar files
+        id: build-output
+        run: |
+          JAR_FILES=$(find build/libs -name "*.jar" -type f | tr '\n' ' ')
+          echo "jar-files=${JAR_FILES}" >> $GITHUB_OUTPUT
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v5
+        with:
+          name: mod-jars
+          path: build/libs/*.jar
+          if-no-files-found: error
+
+  generate-changelog:
+    runs-on: ubuntu-latest
+    needs: check-version
+    outputs:
+      changelog: ${{ steps.changelog.outputs.content }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog from commits
+        id: changelog
+        run: |
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+
+          if [ -z "$LAST_TAG" ]; then
+            COMMITS=$(git log --pretty=format:"%B" | head -20)
+          else
+            COMMITS=$(git log ${LAST_TAG}..HEAD --pretty=format:"%B")
+          fi
+
+          ADD_ITEMS=""
+          FIX_ITEMS=""
+          DEPRECATED_ITEMS=""
+
+          while IFS= read -r line; do
+            if [ -z "$line" ]; then
+              continue
+            fi
+
+            LINE_LOWER=$(echo "$line" | tr '[:upper:]' '[:lower:]')
+
+            if echo "$LINE_LOWER" | grep -qE "fix|fixed|bug|resolve|issue|problem"; then
+              FIX_ITEMS="$FIX_ITEMS- $line"$'\n'
+            elif echo "$LINE_LOWER" | grep -qE "add|new|implement|feature|create"; then
+              ADD_ITEMS="$ADD_ITEMS- $line"$'\n'
+            elif echo "$LINE_LOWER" | grep -qE "remove|removed|deprecated|drop"; then
+              DEPRECATED_ITEMS="$DEPRECATED_ITEMS- $line"$'\n'
+            fi
+          done <<< "$COMMITS"
+
+          CHANGELOG="### ➕Add:"$'\n'
+          if [ -z "$ADD_ITEMS" ]; then
+            CHANGELOG="$CHANGELOG    - No new features"$'\n'
+          else
+            CHANGELOG="$CHANGELOG    $ADD_ITEMS"
+          fi
+
+          CHANGELOG="$CHANGELOG"$'\n'"### 🔧Fix:"$'\n'
+          if [ -z "$FIX_ITEMS" ]; then
+            CHANGELOG="$CHANGELOG    - No fixes"$'\n'
+          else
+            CHANGELOG="$CHANGELOG    $FIX_ITEMS"
+          fi
+
+          CHANGELOG="$CHANGELOG"$'\n'"### ❗❗❗Deprecated:"$'\n'
+          if [ -z "$DEPRECATED_ITEMS" ]; then
+            CHANGELOG="$CHANGELOG    - No deprecations"$'\n'
+          else
+            CHANGELOG="$CHANGELOG    $DEPRECATED_ITEMS"
+          fi
+
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+          echo "content<<$EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "$EOF" >> $GITHUB_OUTPUT
+
+  github-release:
+    runs-on: ubuntu-latest
+    needs: [check-version, build, generate-changelog]
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: mod-jars
+          path: build/libs/
+
+      - name: Generate release title and notes
+        id: release-info
+        run: |
+          VERSION="${{ needs.check-version.outputs.version }}"
+          MOD_NAME="${{ needs.check-version.outputs.mod-name }}"
+          RELEASE_TYPE="${{ needs.check-version.outputs.release-type }}"
+          IS_SNAPSHOT="${{ needs.check-version.outputs.is-snapshot }}"
+
+          # Determine MC version (input for workflow_call, gradle.properties for tag push)
+          if [ -n "${{ inputs.mc_version }}" ]; then
+            MC_VERSION="${{ inputs.mc_version }}"
+          else
+            MC_VERSION=$(grep -oP 'mc_version\s*=\s*\K\S+' gradle.properties 2>/dev/null || echo "")
+            if [ -z "$MC_VERSION" ]; then
+              MC_VERSION=$(grep -oP 'minecraft_version\s*=\s*\K\S+' gradle.properties 2>/dev/null || echo "unknown")
+            fi
+          fi
+
+          if [ "$IS_SNAPSHOT" = "true" ]; then
+            RELEASE_TITLE="${MC_VERSION} - ${VERSION} - Snapshot"
+          else
+            RELEASE_TITLE="${MC_VERSION} - ${VERSION} - ${RELEASE_TYPE^}"
+          fi
+
+          echo "title=${RELEASE_TITLE}" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ steps.release-info.outputs.title }}
+          tag_name: v${{ needs.check-version.outputs.version }}
+          files: build/libs/*.jar
+          draft: false
+          prerelease: ${{ needs.check-version.outputs.is-snapshot == 'true' || needs.check-version.outputs.release-type != 'release' }}
+          body: |
+            # ${{ needs.check-version.outputs.mod-name }} - ${{ needs.check-version.outputs.version }}
+
+            ## What is changed?
+            Change version number from previous to `${{ needs.check-version.outputs.version }}`
+
+            ${{ needs.generate-changelog.outputs.changelog }}
+
+            ## Notes
+            Full Changelog: https://github.com/${{ github.repository }}/commits/v${{ needs.check-version.outputs.version }}
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  cleanup:
+    runs-on: ubuntu-latest
+    needs: [check-version, github-release]
+    if: always()
+    steps:
+      - name: Release Summary
+        run: |
+          echo "## ✅ Release Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Mod Name**: ${{ needs.check-version.outputs.mod-name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: ${{ needs.check-version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Release Type**: ${{ needs.check-version.outputs.release-type }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Is Snapshot**: ${{ needs.check-version.outputs.is-snapshot }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Platform Release**: ${{ needs.check-version.outputs.should-release }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **GitHub Release**: https://github.com/${{ github.repository }}/releases/tag/v${{ needs.check-version.outputs.version }}" >> $GITHUB_STEP_SUMMARY

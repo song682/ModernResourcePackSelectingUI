@@ -49,7 +49,7 @@ gcc -O2 -fPIC -shared -Wall -Wextra \
     -I"${JAVA_HOME}/include" \
     -I"${JAVA_HOME}/include/linux" \
     "${SRC_FILE}" \
-    -lX11 -lpthread \
+    -lX11 \
     -o "${OUT_FILE}"
 
 # Mirror to repo root so anyone poking at the project can find it.

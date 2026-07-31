@@ -96,7 +96,7 @@ dependencies {
     implementation "maven.modrinth:codechickenlib-unofficial:${project.cc_version}"
     implementation "com.github.song682:CatFrame:v0.4.7.3"
 
-    implementation fileTree(dir: 'lib', includes: ['*.jar'])
+    compileOnly fileTree(dir: 'lib', includes: ['*.jar'])
 }
 
 def dependenciesList = []

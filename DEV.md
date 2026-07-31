@@ -57,26 +57,30 @@ gcc -O2 -fPIC -shared -Wall -Wextra \
     -I"$JAVA_HOME/include" \
     -I"$JAVA_HOME/include/linux" \
     source/Linux/dragdrop.c \
-    -lX11 -lpthread \
+    -lX11 \
     -o src/main/resources/natives/linux/libdragdrop.so
 ```
 
 **两个坑提前踩好：**
 
-- `-lpthread` 必须加 —— 我们用独立 Display 连接 + 后台线程 poll XDnD 事件（避免和 LWJGL 主事件循环打架），内部用了 `pthread_create` / `pthread_mutex`。
-- `-lX11` 必须加 —— 走的是标准 X11 XDnD 协议（`XdndEnter/Position/Drop/Finished`）。Wayland 系统也 OK，因为 LWJGL 2.9 在 Linux 下一律走 XWayland，XDnD 消息照样能传过来。
+- `-lX11` 必须加 —— 走的是标准 X11 XDnD 协议（`XdndEnter/Position/Drop/Finished`）。Wayland 会话也 OK，因为 LWJGL 2.9 在 Linux 下一律走 XWayland。
+- 不需要 `-lpthread` 了 —— 新设计全程单线程单连接（见下）。
 
 ### 设计要点
 
-Linux 这边不是 JNI 就能随便收事件的 —— LWJGL 独占着主 Display 连接的 `XNextEvent`。所以我们用了 XDnD 标准的 **XdndProxy** 机制：
+旧版用的是“独立 X 连接 + XdndProxy 代理窗口 + 后台线程 poll”，在 GNOME Wayland 下彻底失效：
 
-1. `XOpenDisplay()` 开一条**独立** X 连接
-2. 在独立连接上建一个不可见 InputOnly 代理窗口
-3. 在 LWJGL 主窗口上写 `XdndAware=5` 和 `XdndProxy=<代理窗口>` 两个属性
-4. 后台 pthread 循环在独立连接上 `XNextEvent`，处理 Enter/Position/Drop 三部曲
-5. `XConvertSelection` 拉 `text/uri-list`，URL 解码后扔进共享数组
+- mutter 的 Wayland→X11 拖放桥接（`meta-xwayland-dnd.c`）**根本不读 `XdndProxy` 属性**，所有 XDnD ClientMessage 直接发给 LWJGL 主窗口。
+- X11 协议规定 `XSendEvent` + `NoEventMask` 的事件**只投递给创建目标窗口的那个客户端**（即 LWJGL 自己的连接），第二条连接永远收不到。
 
-LWJGL 主循环完全不受影响。
+现在的方案：**同连接主线程 + 抢在 LWJGL 排空前截胡**：
+
+1. 在 LWJGL 主窗口上写 `XdndAware=5`（用 LWJGL 自己的 Display*）
+2. **关键**：LWJGL 每帧 `Display.update()` → `LinuxDisplay.processEvents()` 会用 `XNextEvent` 把整个 X 队列排空、并丢弃所有 XDnD ClientMessage（只认窗口关闭那条）。所以我们必须赶在它排空之前把事件捞走。MC 1.7.10 里 `Display.update()` 是 `Minecraft.func_147120_f()` 的第一条语句，于是用 Mixin `@Inject(HEAD)` 挂在这个方法上，每帧在排空前一瞬调 `nativePollDndEventsX11()`（`XCheckIfEvent` 只捞我们要的 4 条 ClientMessage），把「被吃掉的时间窗」从半帧压到微秒级 —— 这样对 `XdndPosition` 的 `XdndStatus` 回复变得可靠，拖放源才会持续显示「可放下」。`drawScreen` 里也保留一次 poll 作为兜底。
+3. 抓到 `XdndDrop` 时**当场同步**取数据：`XConvertSelection` 后用 `XCheckTypedWindowEvent` 定向等自己的 `SelectionNotify`（带超时），彻底避开异步 selection 竞态（这才是老版本成功率低的元凶）—— 不需要第二条连接或后台线程。
+4. 如果 `XdndEnter` 偶尔被 LWJGL 先吞（同帧微秒竞态），收到陌生源的 `XdndPosition` 时盲猜 `text/uri-list`
+
+全程单线程、单连接：不需要 pthread，不需要 `XInitThreads`，也不会和 LWJGL 抢事件。纯 X11 会话同样适用。
 
 ### Java 侧怎么拿到句柄
 
