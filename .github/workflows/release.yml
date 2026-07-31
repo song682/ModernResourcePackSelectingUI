@@ -1,0 +1,24 @@
+name: Release mod jar
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # Build the JNI natives first so the release jar ships with them.
+  # 先编译 JNI 原生库，确保 release jar 内部携带它们。
+  build-jni:
+    uses: ./.github/workflows/jni-build.yml
+
+  release:
+    needs: build-jni
+    uses: song682/workflows/.github/workflows/release-template.yml@main
+    with:
+      mod_archives_name: ModernCreateWorldUI
+      mc_version: '1.7.10'
+      native-sources: jni-natives
